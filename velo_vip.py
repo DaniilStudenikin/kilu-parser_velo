@@ -13,57 +13,52 @@ class Parser:
         self.__attributes_id = dict()
         self.__iteration = 0
 
-    def parse_categories(self):
-        response = requests.get(self.__main_page)
-        soup = BeautifulSoup(response.text, 'lxml')
-        tab_grid = soup.find('div', class_='tab-grid').find_all('div', class_='tab-grid__item')[:-1]
-        categories = dict()
-        for elem in tab_grid:
-            category_url = elem.find('a', class_='category-card__title').get('href')
-            category_name = elem.find('a', class_='category-card__title').text
-            categories[f'{category_name}'] = category_url
-        return categories
+    def parse_urls(self):
+        url = f"{self.__main_page}/vip/woman/"
+        urls_to_grequests_paginations = []
+        product_urls = []
+        for number in range(1, 36):
+            urls_to_grequests_paginations.append(f'{url}{number}.html')
+        responses_urls = (grequests.get(ur) for ur in urls_to_grequests_paginations)
+        resps = grequests.map(responses_urls, size=16)
+        for resp in resps:
+            soup = BeautifulSoup(resp.text, 'lxml')
+            print(resp.url)
+            urls_products = soup.find('div', class_='product-grid _wide').find_all('div', class_='product-grid__item')
+
+            for elem in urls_products:
+                url = elem.find('a', class_='product-card__title')
+                product_urls.append(url.get('href'))
+        return product_urls
 
     def parse(self):
-        categories = self.parse_categories()
-        categories.pop('Горные велосипеды')
-        categories.pop('Женские велосипеды')
-        categories.pop('Детские велосипеды')
-        # print(categories)
-        for k, v in categories.items():
-            print(f"Parsing : {k}")
-            sub_category_products_data = []
-            sub_category_headers = []
-            self.__attributes_id = dict()
-            self.__attribute_number = 1
-            category_url = f'{self.__main_page}{v}'
-            category_name = k
-            urls = self.parse_sub_categories_to_get_product_urls(category_url, v)
-            print('Urls parsed! Starting scrap product pages!')
-            responses = (grequests.get(url) for url in urls)
-            resps = grequests.map(responses, size=15)
-            for response in resps:
-                print(f'Iteration #{self.__iteration} .... URL: {response.url}')
-                print(response.status_code)
-                data = self.parse_product_by_page(response.text, k)
-                print(data)
-                self.__iteration += 1
-                for elem in data.keys():
-                    if not sub_category_headers.__contains__(elem):
-                        sub_category_headers.append(elem)
-                sub_category_products_data.append(data)
-            if not os.path.exists(f'data/{category_name}'):
-                os.makedirs(f'data/{category_name}')
-            with open(f'data/{category_name}/{category_name}.csv', 'a', encoding='utf-8', newline='') as csv_file:
-                writer = csv.DictWriter(csv_file, fieldnames=sub_category_headers, restval=None)
-                writer.writeheader()
-                print(f'Len: {len(sub_category_products_data)}')
-                for row in sub_category_products_data:
-                    writer.writerow(row)
-            # print(f'Headers : {sub_category_headers}')
-            # print(f'Headers len : {len(sub_category_headers)}')
-            # print(f'Length : {len(sub_category_products_data)}')
-            # print(f'Data: {sub_category_products_data}')
+        urls = self.parse_urls()
+        product_urls = []
+        for elem in urls:
+            product_urls.append(f'{self.__main_page}{elem}')
+        responses = (grequests.get(url) for url in product_urls)
+        resps = grequests.map(responses, size=14)
+        sub_category_products_data = []
+        sub_category_headers = []
+        category_name = "VIP"
+        self.__attributes_id = dict()
+        self.__attribute_number = 1
+        for resp in resps:
+            print(f'Iteration #{self.__iteration} .... URL: {resp.url}')
+            data = self.parse_product_by_page(resp.text, 'VIP')
+            self.__iteration += 1
+            for elem in data.keys():
+                if not sub_category_headers.__contains__(elem):
+                    sub_category_headers.append(elem)
+            sub_category_products_data.append(data)
+        if not os.path.exists(f'data/{category_name}'):
+            os.makedirs(f'data/{category_name}')
+        with open(f'data/{category_name}/{category_name}.csv', 'a', encoding='utf-8', newline='') as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=sub_category_headers, restval=None)
+            writer.writeheader()
+            print(f'Len: {len(sub_category_products_data)}')
+            for row in sub_category_products_data:
+                writer.writerow(row)
 
     def parse_product_by_page(self, page, sub_cat_name):
         data = dict()
@@ -139,36 +134,6 @@ class Parser:
                 data[f'Attribute {self.__attributes_id.get(attribute_name)} visible'] = 1
                 data[f'Attribute {self.__attributes_id.get(attribute_name)} global'] = 0
         return data
-
-    def parse_sub_categories_to_get_product_urls(self, sub_cat_url, sub_cat_url_clean):
-        response = requests.get(sub_cat_url)
-        print(f'Parsing sub categories!')
-        soup = BeautifulSoup(response.text, 'lxml')
-        final_urls = []
-        urls = soup.find('div', class_='product-grid').find_all('div', class_='product-grid__item')
-        for elem in urls:
-            try:
-                url = elem.find('div', class_='product-card__img').find('a').get('href')
-                final_urls.append(self.__main_page + url)
-            except AttributeError:
-                continue
-        pagination = soup.find('div', class_='pagination__pager').find_all('a', class_='pagination__page')
-        url_to_greq = []
-        for el in range(2, int(pagination[-1:][0].text) + 1):
-            url = f'{self.__main_page}{sub_cat_url_clean}{el}.html'
-            url_to_greq.append(url)
-        resp_ = (grequests.get(url) for url in url_to_greq)
-        grespones = grequests.map(resp_, size=15)
-        for response_ in grespones:
-            soup = BeautifulSoup(response_.text, 'lxml')
-            urls = soup.find('div', class_='product-grid').find_all('div', class_='product-grid__item')
-            for elem in urls:
-                try:
-                    url = elem.find('div', class_='product-card__img').find('a').get('href')
-                    final_urls.append(self.__main_page + url)
-                except AttributeError:
-                    continue
-        return final_urls
 
 
 def main():
